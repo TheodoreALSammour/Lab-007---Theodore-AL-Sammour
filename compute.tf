@@ -1,138 +1,118 @@
-data "aws_ami" "amazon_linux_2" {
+# ── AMI: Latest Amazon Linux 2023 ────────────────────────────────────────────────
+data "aws_ami" "amazon" {
   most_recent = true
   owners      = ["amazon"]
 
   filter {
     name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+    values = ["al2023-ami-*-x86_64"]
   }
 }
 
-# ─── Bastion Host ─────────────────────────────────────────────────────────────
-
+# ── Bastion Host ─────────────────────────────────────────────────────────────────
 resource "aws_instance" "bastion" {
-  ami                         = data.aws_ami.amazon_linux_2.id
+  ami                         = data.aws_ami.amazon.id
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.public[0].id
   vpc_security_group_ids      = [aws_security_group.bastion.id]
   key_name                    = var.key_name
   associate_public_ip_address = true
-  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
 
-  tags = {
-    Name = "${var.project_name}-bastion"
-  }
+  tags = { Name = "lab007-bastion" }
 }
 
-# ─── Web Tier Launch Template ─────────────────────────────────────────────────
-
+# ── Web Tier Launch Template ──────────────────────────────────────────────────────
+# Injects backend_url (internal ALB DNS) and full_name into web.sh at deploy time
 resource "aws_launch_template" "web" {
-  name_prefix   = "${var.project_name}-web-lt-"
-  image_id      = data.aws_ami.amazon_linux_2.id
+  name_prefix   = "lab007-web-"
+  image_id      = data.aws_ami.amazon.id
   instance_type = var.instance_type
   key_name      = var.key_name
 
-  network_interfaces {
-    associate_public_ip_address = true
-    security_groups             = [aws_security_group.web.id]
-  }
-
   iam_instance_profile {
-    name = aws_iam_instance_profile.ec2_profile.name
+    name = aws_iam_instance_profile.profile.name
   }
 
-  user_data = base64encode(join("\n", [
-    "#!/bin/bash",
-    "export YOUR_NAME='${var.your_name}'",
-    "export BACKEND_DNS='${aws_lb.internal.dns_name}'",
-    file("${path.module}/userdata/web.sh")
-  ]))
+  vpc_security_group_ids = [aws_security_group.web.id]
+
+  user_data = base64encode(templatefile("userdata/web.sh", {
+    backend_url = aws_lb.internal.dns_name
+    full_name   = var.full_name
+  }))
 
   tag_specifications {
     resource_type = "instance"
-    tags = {
-      Name = "${var.project_name}-web"
-    }
+    tags          = { Name = "lab007-web" }
   }
 }
 
-# ─── Web Tier ASG ─────────────────────────────────────────────────────────────
-
+# ── Web Tier Auto Scaling Group ───────────────────────────────────────────────────
 resource "aws_autoscaling_group" "web" {
-  name                = "${var.project_name}-web-asg"
+  name                = "lab007-web-asg"
   min_size            = 1
   max_size            = 4
   desired_capacity    = 2
   vpc_zone_identifier = aws_subnet.public[*].id
-  target_group_arns   = [aws_lb_target_group.web.arn]
 
   launch_template {
     id      = aws_launch_template.web.id
     version = "$Latest"
   }
 
-  health_check_type         = "ELB"
-  health_check_grace_period = 120
-
   tag {
     key                 = "Name"
-    value               = "${var.project_name}-web"
+    value               = "lab007-web"
     propagate_at_launch = true
   }
+
+  # Health check via ALB so the ASG replaces truly unhealthy instances
+  health_check_type         = "ELB"
+  health_check_grace_period = 120
 }
 
-# ─── Backend Tier Launch Template ─────────────────────────────────────────────
-
+# ── Backend Tier Launch Template ─────────────────────────────────────────────────
+# Injects full_name into backend.sh so it appears in the API response page
 resource "aws_launch_template" "backend" {
-  name_prefix   = "${var.project_name}-backend-lt-"
-  image_id      = data.aws_ami.amazon_linux_2.id
+  name_prefix   = "lab007-backend-"
+  image_id      = data.aws_ami.amazon.id
   instance_type = var.instance_type
   key_name      = var.key_name
 
-  network_interfaces {
-    associate_public_ip_address = false
-    security_groups             = [aws_security_group.backend.id]
-  }
-
   iam_instance_profile {
-    name = aws_iam_instance_profile.ec2_profile.name
+    name = aws_iam_instance_profile.profile.name
   }
 
-  user_data = base64encode(join("\n", [
-    "#!/bin/bash",
-    "export YOUR_NAME='${var.your_name}'",
-    file("${path.module}/userdata/backend.sh")
-  ]))
+  vpc_security_group_ids = [aws_security_group.backend.id]
+
+  user_data = base64encode(templatefile("userdata/backend.sh", {
+    full_name = var.full_name
+  }))
 
   tag_specifications {
     resource_type = "instance"
-    tags = {
-      Name = "${var.project_name}-backend"
-    }
+    tags          = { Name = "lab007-backend" }
   }
 }
 
-# ─── Backend Tier ASG ─────────────────────────────────────────────────────────
-
+# ── Backend Tier Auto Scaling Group ──────────────────────────────────────────────
 resource "aws_autoscaling_group" "backend" {
-  name                = "${var.project_name}-backend-asg"
+  name                = "lab007-backend-asg"
   min_size            = 1
   max_size            = 3
   desired_capacity    = 2
   vpc_zone_identifier = aws_subnet.private[*].id
-  target_group_arns   = [aws_lb_target_group.backend.arn]
 
   launch_template {
     id      = aws_launch_template.backend.id
     version = "$Latest"
   }
 
-  health_check_type         = "ELB"
-  health_check_grace_period = 180
-
   tag {
     key                 = "Name"
-    value               = "${var.project_name}-backend"
+    value               = "lab007-backend"
     propagate_at_launch = true
   }
+
+  health_check_type         = "ELB"
+  health_check_grace_period = 180
 }

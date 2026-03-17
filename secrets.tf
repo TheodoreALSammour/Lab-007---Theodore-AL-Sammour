@@ -1,81 +1,51 @@
-# ─── SSM Parameters ───────────────────────────────────────────────────────────
-
+# ── SSM Parameters ───────────────────────────────────────────────────────────────
 resource "aws_ssm_parameter" "db_password" {
-  name        = "/${var.project_name}/db/password"
-  type        = "SecureString"
-  value       = var.db_password
-  description = "Database password for the application"
+  name  = "/lab007/db_password"
+  type  = "SecureString"
+  value = var.db_password
 
-  tags = {
-    Name = "${var.project_name}-db-password"
-  }
+  tags = { Name = "lab007-db-password" }
 }
 
 resource "aws_ssm_parameter" "app_env" {
-  name        = "/${var.project_name}/app/environment"
-  type        = "String"
-  value       = var.app_environment
-  description = "Application environment (e.g., production, staging)"
+  name  = "/lab007/app_env"
+  type  = "String"
+  value = var.app_env
 
-  tags = {
-    Name = "${var.project_name}-app-env"
-  }
+  tags = { Name = "lab007-app-env" }
 }
 
-# ─── IAM Role for EC2 ─────────────────────────────────────────────────────────
-
+# ── IAM Role for EC2 → SSM access ────────────────────────────────────────────────
 resource "aws_iam_role" "ec2_role" {
-  name = "${var.project_name}-ec2-role"
+  name = "lab007-ec2-ssm-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
   })
 
-  tags = {
-    Name = "${var.project_name}-ec2-role"
-  }
+  tags = { Name = "lab007-ec2-ssm-role" }
 }
 
 resource "aws_iam_role_policy" "ssm_read" {
-  name = "${var.project_name}-ssm-read-policy"
+  name = "lab007-ssm-read"
   role = aws_iam_role.ec2_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ssm:GetParameter",
-          "ssm:GetParameters",
-          "ssm:GetParametersByPath",
-          "ssm:DescribeParameters"
-        ]
-        Resource = [
-          "arn:aws:ssm:${var.aws_region}:*:parameter/${var.project_name}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "kms:Decrypt"
-        ]
-        Resource = "*"
-      }
-    ]
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+      Resource = "arn:aws:ssm:${var.region}:*:parameter/lab007/*"
+    }]
   })
 }
 
-resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "${var.project_name}-ec2-instance-profile"
+resource "aws_iam_instance_profile" "profile" {
+  name = "lab007-ec2-profile"
   role = aws_iam_role.ec2_role.name
 }

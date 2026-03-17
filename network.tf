@@ -1,72 +1,50 @@
-# ─── Subnets ───────────────────────────────────────────────────────────────────
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+
+  tags = { Name = "lab007-igw" }
+}
 
 resource "aws_subnet" "public" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_cidrs[count.index]
+  cidr_block              = var.public_subnets[count.index]
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
 
-  tags = {
-    Name = "${var.project_name}-public-subnet-${count.index + 1}"
-  }
+  tags = { Name = "lab007-public-${count.index + 1}" }
 }
 
 resource "aws_subnet" "private" {
   count             = 2
   vpc_id            = aws_vpc.main.id
-  cidr_block        = var.private_subnet_cidrs[count.index]
+  cidr_block        = var.private_subnets[count.index]
   availability_zone = data.aws_availability_zones.available.names[count.index]
 
-  tags = {
-    Name = "${var.project_name}-private-subnet-${count.index + 1}"
-  }
+  tags = { Name = "lab007-private-${count.index + 1}" }
 }
-
-# ─── Internet Gateway ──────────────────────────────────────────────────────────
-
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
-  tags = {
-    Name = "${var.project_name}-igw"
-  }
-}
-
-# ─── NAT Gateway ──────────────────────────────────────────────────────────────
 
 resource "aws_eip" "nat" {
   domain = "vpc"
-
-  tags = {
-    Name = "${var.project_name}-nat-eip"
-  }
 }
 
-resource "aws_nat_gateway" "main" {
+resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id
 
-  tags = {
-    Name = "${var.project_name}-nat-gw"
-  }
+  tags = { Name = "lab007-nat" }
 
-  depends_on = [aws_internet_gateway.main]
+  depends_on = [aws_internet_gateway.igw]
 }
-
-# ─── Route Tables ─────────────────────────────────────────────────────────────
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
+    gateway_id = aws_internet_gateway.igw.id
   }
 
-  tags = {
-    Name = "${var.project_name}-public-rt"
-  }
+  tags = { Name = "lab007-public-rt" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -80,12 +58,10 @@ resource "aws_route_table" "private" {
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
+    nat_gateway_id = aws_nat_gateway.nat.id
   }
 
-  tags = {
-    Name = "${var.project_name}-private-rt"
-  }
+  tags = { Name = "lab007-private-rt" }
 }
 
 resource "aws_route_table_association" "private" {

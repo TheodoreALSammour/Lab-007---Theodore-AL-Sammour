@@ -1,36 +1,7 @@
-# ─── Bastion SG ───────────────────────────────────────────────────────────────
-
-resource "aws_security_group" "bastion" {
-  name        = "${var.project_name}-bastion-sg"
-  description = "Security group for bastion host"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description = "SSH from anywhere"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.project_name}-bastion-sg"
-  }
-}
-
-# ─── ALB SG ───────────────────────────────────────────────────────────────────
-
+# ── ALB (External) Security Group ──────────────────────────────────────────────
 resource "aws_security_group" "alb" {
-  name        = "${var.project_name}-alb-sg"
-  description = "Security group for external ALB"
-  vpc_id      = aws_vpc.main.id
+  name   = "alb-sg"
+  vpc_id = aws_vpc.main.id
 
   ingress {
     description = "HTTP from internet"
@@ -47,20 +18,63 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
-    Name = "${var.project_name}-alb-sg"
-  }
+  tags = { Name = "alb-sg" }
 }
 
-# ─── Web Tier SG ──────────────────────────────────────────────────────────────
-
-resource "aws_security_group" "web" {
-  name        = "${var.project_name}-web-sg"
-  description = "Security group for web tier instances"
-  vpc_id      = aws_vpc.main.id
+# ── Internal ALB Security Group ─────────────────────────────────────────────────
+# Accepts port 80 from web instances; forwards to backend on port 3000
+resource "aws_security_group" "alb_internal" {
+  name   = "alb-internal-sg"
+  vpc_id = aws_vpc.main.id
 
   ingress {
-    description     = "HTTP from ALB only"
+    description     = "HTTP from web tier"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.web.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "alb-internal-sg" }
+}
+
+# ── Bastion Security Group ───────────────────────────────────────────────────────
+resource "aws_security_group" "bastion" {
+  name   = "bastion-sg"
+  vpc_id = aws_vpc.main.id
+
+  ingress {
+    description = "SSH from internet"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "bastion-sg" }
+}
+
+# ── Web Tier Security Group ──────────────────────────────────────────────────────
+resource "aws_security_group" "web" {
+  name   = "web-sg"
+  vpc_id = aws_vpc.main.id
+
+  ingress {
+    description     = "HTTP from external ALB only"
     from_port       = 80
     to_port         = 80
     protocol        = "tcp"
@@ -68,7 +82,7 @@ resource "aws_security_group" "web" {
   }
 
   ingress {
-    description     = "SSH from Bastion only"
+    description     = "SSH from bastion only"
     from_port       = 22
     to_port         = 22
     protocol        = "tcp"
@@ -82,28 +96,25 @@ resource "aws_security_group" "web" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
-    Name = "${var.project_name}-web-sg"
-  }
+  tags = { Name = "web-sg" }
 }
 
-# ─── Backend SG ───────────────────────────────────────────────────────────────
-
+# ── Backend Tier Security Group ──────────────────────────────────────────────────
+# Port 3000 from internal ALB SG (not web-sg directly, since traffic flows via ALB)
 resource "aws_security_group" "backend" {
-  name        = "${var.project_name}-backend-sg"
-  description = "Security group for backend tier instances"
-  vpc_id      = aws_vpc.main.id
+  name   = "backend-sg"
+  vpc_id = aws_vpc.main.id
 
   ingress {
-    description     = "Node.js API from Web tier only"
+    description     = "API port from internal ALB only"
     from_port       = 3000
     to_port         = 3000
     protocol        = "tcp"
-    security_groups = [aws_security_group.web.id]
+    security_groups = [aws_security_group.alb_internal.id]
   }
 
   ingress {
-    description     = "SSH from Bastion only"
+    description     = "SSH from bastion only"
     from_port       = 22
     to_port         = 22
     protocol        = "tcp"
@@ -117,34 +128,5 @@ resource "aws_security_group" "backend" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
-    Name = "${var.project_name}-backend-sg"
-  }
-}
-
-# ─── Internal ALB SG (Bonus) ──────────────────────────────────────────────────
-
-resource "aws_security_group" "internal_alb" {
-  name        = "${var.project_name}-internal-alb-sg"
-  description = "Security group for internal ALB"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description     = "Port 3000 from Web tier"
-    from_port       = 3000
-    to_port         = 3000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.web.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.project_name}-internal-alb-sg"
-  }
+  tags = { Name = "backend-sg" }
 }

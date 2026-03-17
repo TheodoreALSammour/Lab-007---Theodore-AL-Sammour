@@ -1,39 +1,31 @@
-# ─── External ALB (Public) ────────────────────────────────────────────────────
-
+# ── External ALB (internet-facing → web tier) ────────────────────────────────────
 resource "aws_lb" "external" {
-  name               = "${var.project_name}-ext-alb"
+  name               = "lab007-external-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
 
-  tags = {
-    Name = "${var.project_name}-ext-alb"
-  }
+  tags = { Name = "lab007-external-alb" }
 }
 
 resource "aws_lb_target_group" "web" {
-  name     = "${var.project_name}-web-tg"
+  name     = "lab007-web-tg"
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 
   health_check {
     path                = "/"
-    protocol            = "HTTP"
-    matcher             = "200"
-    interval            = 30
-    timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 3
+    interval            = 30
   }
 
-  tags = {
-    Name = "${var.project_name}-web-tg"
-  }
+  tags = { Name = "lab007-web-tg" }
 }
 
-resource "aws_lb_listener" "external_http" {
+resource "aws_lb_listener" "external" {
   load_balancer_arn = aws_lb.external.arn
   port              = 80
   protocol          = "HTTP"
@@ -44,48 +36,50 @@ resource "aws_lb_listener" "external_http" {
   }
 }
 
-# ─── Internal ALB (Private — Bonus) ───────────────────────────────────────────
+resource "aws_autoscaling_attachment" "web_attach" {
+  autoscaling_group_name = aws_autoscaling_group.web.id
+  lb_target_group_arn    = aws_lb_target_group.web.arn
+}
 
+# ── Internal ALB (web tier → backend tier) ───────────────────────────────────────
 resource "aws_lb" "internal" {
-  name               = "${var.project_name}-int-alb"
+  name               = "lab007-internal-alb"
   internal           = true
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.internal_alb.id]
+  security_groups    = [aws_security_group.alb_internal.id]
   subnets            = aws_subnet.private[*].id
 
-  tags = {
-    Name = "${var.project_name}-int-alb"
-  }
+  tags = { Name = "lab007-internal-alb" }
 }
 
 resource "aws_lb_target_group" "backend" {
-  name     = "${var.project_name}-backend-tg"
+  name     = "lab007-backend-tg"
   port     = 3000
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 
   health_check {
     path                = "/api/health"
-    protocol            = "HTTP"
-    matcher             = "200"
-    interval            = 30
-    timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 3
+    interval            = 30
   }
 
-  tags = {
-    Name = "${var.project_name}-backend-tg"
-  }
+  tags = { Name = "lab007-backend-tg" }
 }
 
-resource "aws_lb_listener" "internal_http" {
+resource "aws_lb_listener" "internal" {
   load_balancer_arn = aws_lb.internal.arn
-  port              = 3000
+  port              = 80
   protocol          = "HTTP"
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.backend.arn
   }
+}
+
+resource "aws_autoscaling_attachment" "backend_attach" {
+  autoscaling_group_name = aws_autoscaling_group.backend.id
+  lb_target_group_arn    = aws_lb_target_group.backend.arn
 }

@@ -9,7 +9,7 @@ output "external_alb_dns" {
 }
 
 output "internal_alb_dns" {
-  description = "DNS name of the internal ALB (used by web tier to reach backend)"
+  description = "DNS name of the internal ALB (used by the web tier nginx config)"
   value       = aws_lb.internal.dns_name
 }
 
@@ -19,19 +19,9 @@ output "bastion_public_ip" {
 }
 
 output "ssm_parameter_paths" {
-  description = "SSM Parameter Store paths"
-  value = {
-    db_password = aws_ssm_parameter.db_password.name
-    app_env     = aws_ssm_parameter.app_env.name
-  }
-}
-
-output "public_subnet_ids" {
-  description = "IDs of the public subnets"
-  value       = aws_subnet.public[*].id
-}
-
-output "private_subnet_ids" {
-  description = "IDs of the private subnets"
-  value       = aws_subnet.private[*].id
+  description = "SSM Parameter Store paths created by this stack"
+  value = [
+    aws_ssm_parameter.db_password.name,
+    aws_ssm_parameter.app_env.name,
+  ]
 }

@@ -1,42 +1,27 @@
-variable "aws_region" {
-  description = "AWS region to deploy resources"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "project_name" {
-  description = "Project name used as a prefix for all resources"
-  type        = string
-  default     = "lab007"
-}
-
-variable "your_name" {
-  description = "Your full name — displayed on the web page"
+variable "region" {
+  description = "AWS region to deploy into"
   type        = string
 }
 
 variable "vpc_cidr" {
-  description = "CIDR block for the VPC"
+  description = "CIDR block for the VPC (must not be 10.0.0.0/16)"
   type        = string
-  default     = "10.1.0.0/16"
 }
 
-variable "public_subnet_cidrs" {
-  description = "CIDR blocks for the two public subnets"
+variable "public_subnets" {
+  description = "List of 2 CIDR blocks for the public subnets"
   type        = list(string)
-  default     = ["10.1.1.0/24", "10.1.2.0/24"]
 }
 
-variable "private_subnet_cidrs" {
-  description = "CIDR blocks for the two private subnets"
+variable "private_subnets" {
+  description = "List of 2 CIDR blocks for the private subnets"
   type        = list(string)
-  default     = ["10.1.10.0/24", "10.1.11.0/24"]
 }
 
 variable "instance_type" {
-  description = "EC2 instance type"
+  description = "EC2 instance type for all instances"
   type        = string
-  default     = "t2.micro"
+  default     = "t3.micro"
 }
 
 variable "key_name" {
@@ -44,14 +29,19 @@ variable "key_name" {
   type        = string
 }
 
+variable "full_name" {
+  description = "Your full name — injected into the web and backend pages"
+  type        = string
+}
+
 variable "db_password" {
-  description = "Database password stored in SSM Parameter Store (SecureString)"
+  description = "Database password stored in SSM as a SecureString"
   type        = string
   sensitive   = true
 }
 
-variable "app_environment" {
-  description = "Application environment name stored in SSM Parameter Store (String)"
+variable "app_env" {
+  description = "Application environment value stored in SSM (e.g. production)"
   type        = string
   default     = "production"
 }

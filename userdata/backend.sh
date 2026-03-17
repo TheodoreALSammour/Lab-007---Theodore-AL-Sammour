@@ -1,17 +1,18 @@
-yum update -y
+#!/bin/bash
+dnf update -y
 
-# ─── Install Node.js 18 ──────────────────────────────────────────────────────
-curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
-yum install -y nodejs
+# ─── Install Node.js 18 (AL2023 has it in its own repo) ─────────────────────────
+dnf install -y nodejs npm
 
-# ─── Create app directory ─────────────────────────────────────────────────────
+# ─── Create app directory ────────────────────────────────────────────────────────
 mkdir -p /home/ec2-user/app
 cd /home/ec2-user/app
 
 npm init -y
 npm install express
 
-# ─── Create server.js ─────────────────────────────────────────────────────────
+# ─── Create server.js ────────────────────────────────────────────────────────────
+# ${full_name} is injected by Terraform's templatefile() at deploy time
 cat > server.js << 'APPEOF'
 const express = require("express");
 const { execSync } = require("child_process");
@@ -25,8 +26,8 @@ function getMeta(path) {
       '-H "X-aws-ec2-metadata-token-ttl-seconds: 21600"'
     ).toString().trim();
     return execSync(
-      'curl -s -H "X-aws-ec2-metadata-token: ' + token + '" ' +
-      'http://169.254.169.254/latest/meta-data/' + path
+      `curl -s -H "X-aws-ec2-metadata-token: $${token}" ` +
+      `http://169.254.169.254/latest/meta-data/$${path}`
     ).toString().trim();
   } catch (e) {
     return "unknown";
@@ -37,6 +38,7 @@ app.get("/api/health", (req, res) => {
   res.json({
     status: "healthy",
     tier: "backend",
+    name: "${full_name}",
     instanceId: getMeta("instance-id"),
     availabilityZone: getMeta("placement/availability-zone"),
     timestamp: new Date().toISOString(),
@@ -45,7 +47,7 @@ app.get("/api/health", (req, res) => {
 
 app.get("/api/data", (req, res) => {
   res.json({
-    message: "Hello from the Backend Tier!",
+    message: "Hello from the Backend Tier — ${full_name}!",
     instanceId: getMeta("instance-id"),
     availabilityZone: getMeta("placement/availability-zone"),
     timestamp: new Date().toISOString(),
@@ -59,9 +61,7 @@ app.get("/api/data", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log("Backend API running on port " + PORT);
-});
+app.listen(PORT, () => console.log(`Backend API running on port $${PORT}`));
 APPEOF
 
 chown -R ec2-user:ec2-user /home/ec2-user/app

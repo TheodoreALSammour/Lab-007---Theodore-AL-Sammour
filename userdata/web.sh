@@ -1,8 +1,9 @@
-yum update -y
-yum install -y nginx
+#!/bin/bash
+dnf update -y
+dnf install -y nginx
 
-# ─── Create the frontend HTML (name injected from $YOUR_NAME env var) ────────
-cat > /usr/share/nginx/html/index.html << HTMLEOF
+# ─── Create the frontend HTML ───────────────────────────────────────────────────
+cat > /usr/share/nginx/html/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html>
 <head>
@@ -30,8 +31,8 @@ cat > /usr/share/nginx/html/index.html << HTMLEOF
 </head>
 <body>
   <div class="container">
-    <h1>Two-Tier App &mdash; $YOUR_NAME</h1>
-    <p class="subtitle">Web Tier &rarr; Nginx Reverse Proxy &rarr; Backend API</p>
+    <h1>Two-Tier App &mdash; FULL_NAME_PLACEHOLDER</h1>
+    <p class="subtitle">Web Tier &rarr; Nginx Reverse Proxy &rarr; Internal ALB &rarr; Backend API</p>
     <div class="card">
       <h2>Backend Health Check</h2>
       <div id="health"><span class="loading">Checking backend...</span></div>
@@ -45,9 +46,13 @@ cat > /usr/share/nginx/html/index.html << HTMLEOF
     fetch("/api/health")
       .then(r => r.json())
       .then(d => {
-        document.getElementById("health").innerHTML =
-          '<span class="status healthy">' + d.status + '</span>' +
-          '<div class="meta">Instance: ' + d.instanceId + '<br>AZ: ' + d.availabilityZone + '<br>Time: ' + d.timestamp + '</div>';
+        document.getElementById("health").innerHTML = `
+          <span class="status healthy">$${d.status}</span>
+          <div class="meta">
+            Instance: $${d.instanceId}<br>
+            AZ: $${d.availabilityZone}<br>
+            Time: $${d.timestamp}
+          </div>`;
       })
       .catch(() => {
         document.getElementById("health").innerHTML =
@@ -58,12 +63,15 @@ cat > /usr/share/nginx/html/index.html << HTMLEOF
       .then(r => r.json())
       .then(d => {
         let rows = d.items.map(i =>
-          '<tr><td>' + i.id + '</td><td>' + i.name + '</td><td>' + i.description + '</td></tr>'
+          `<tr><td>$${i.id}</td><td>$${i.name}</td><td>$${i.description}</td></tr>`
         ).join("");
-        document.getElementById("data").innerHTML =
-          '<p>' + d.message + '</p>' +
-          '<div class="meta">Instance: ' + d.instanceId + ' | AZ: ' + d.availabilityZone + '</div>' +
-          '<table><tr><th>ID</th><th>Name</th><th>Description</th></tr>' + rows + '</table>';
+        document.getElementById("data").innerHTML = `
+          <p>$${d.message}</p>
+          <div class="meta">Instance: $${d.instanceId} | AZ: $${d.availabilityZone}</div>
+          <table>
+            <tr><th>ID</th><th>Name</th><th>Description</th></tr>
+            $${rows}
+          </table>`;
       })
       .catch(() => {
         document.getElementById("data").innerHTML =
@@ -74,30 +82,53 @@ cat > /usr/share/nginx/html/index.html << HTMLEOF
 </html>
 HTMLEOF
 
-# ─── Configure Nginx reverse proxy to Internal ALB ───────────────────────────
-cat > /etc/nginx/conf.d/reverse-proxy.conf << NGINXEOF
-server {
-    listen 80;
-    server_name _;
+# ─── Inject full_name into the HTML (Terraform placeholder approach) ─────────────
+sed -i "s|FULL_NAME_PLACEHOLDER|${full_name}|g" /usr/share/nginx/html/index.html
 
-    root /usr/share/nginx/html;
-    index index.html;
+# ─── Overwrite nginx.conf with a clean minimal config ───────────────────────────
+# We overwrite entirely to avoid sed mangling the default AL2023 nginx.conf
+cat > /etc/nginx/nginx.conf << 'NGINXEOF'
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
 
-    location / {
-        try_files \$uri \$uri/ =404;
-    }
+events {
+    worker_connections 1024;
+}
 
-    location /api/ {
-        proxy_pass http://$BACKEND_DNS:3000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    sendfile      on;
+    keepalive_timeout 65;
+
+    server {
+        listen 80;
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location / {
+            try_files $uri $uri/ =404;
+        }
+
+        location /api/ {
+            proxy_pass http://BACKEND_URL_PLACEHOLDER:80;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
     }
 }
 NGINXEOF
 
-rm -f /etc/nginx/conf.d/default.conf
-sed -i '/^\s*server\s*{/,/^\s*}/d' /etc/nginx/nginx.conf 2>/dev/null || true
+# ─── Inject backend URL into nginx.conf ─────────────────────────────────────────
+sed -i "s|BACKEND_URL_PLACEHOLDER|${backend_url}|g" /etc/nginx/nginx.conf
+
+# ─── Remove conf.d files to avoid conflicts with our nginx.conf server block ────
+rm -f /etc/nginx/conf.d/*.conf
 
 systemctl start nginx
 systemctl enable nginx
